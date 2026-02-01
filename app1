@@ -1,0 +1,198 @@
+package com.example.myapplication
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import com.example.myapplication.ui.theme.MyApplicationTheme
+
+data class Vehicle(val name: String, val price: Int)
+data class Booking(val vehicle: String, val hours: Int, val total: Int)
+
+enum class Screen { LOGIN, HOME, BOOKING, REVIEW, PAYMENT, CONFIRM, HISTORY, ADMIN }
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent { MyApplicationTheme { RentifyApp() } }
+    }
+}
+
+@Composable
+fun RentifyApp() {
+    var screen by remember { mutableStateOf(Screen.LOGIN) }
+    var selectedVehicle by remember { mutableStateOf<Vehicle?>(null) }
+    var hours by remember { mutableIntStateOf(0) }
+
+    val bookings = remember { mutableStateListOf<Booking>() }
+    val vehicles = remember { mutableStateListOf(
+        Vehicle("Bike", 50),
+        Vehicle("Car", 200),
+        Vehicle("Cycle", 20)
+    )}
+
+    when(screen) {
+        Screen.LOGIN -> LoginScreen(
+            onUser = { screen = Screen.HOME },
+            onAdmin = { screen = Screen.ADMIN }
+        )
+        Screen.HOME -> HomeScreen(
+            vehicles = vehicles,
+            onSelect = { selectedVehicle = it; screen = Screen.BOOKING },
+            onHistory = { screen = Screen.HISTORY }
+        )
+        Screen.ADMIN -> AdminPanel(
+            vehicles = vehicles,
+            bookings = bookings,
+            onAdd = { vehicles.add(it) },
+            onBack = { screen = Screen.LOGIN }
+        )
+        Screen.BOOKING -> selectedVehicle?.let { BookingScreen(it) { hours = it; screen = Screen.REVIEW } }
+        Screen.REVIEW -> selectedVehicle?.let { ReviewScreen(it, hours) { screen = Screen.PAYMENT } }
+        Screen.PAYMENT -> PaymentScreen {
+            bookings.add(Booking(selectedVehicle!!.name, hours, selectedVehicle!!.price * hours))
+            screen = Screen.CONFIRM
+        }
+        Screen.CONFIRM -> ConfirmationScreen { screen = Screen.HOME }
+        Screen.HISTORY -> BookingHistoryScreen(bookings, onBack = { screen = Screen.HOME }, onCancel = { bookings.remove(it) })
+    }
+}
+
+@Composable
+fun LoginScreen(onUser: () -> Unit, onAdmin: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Rentify", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onUser, modifier = Modifier.fillMaxWidth()) { Text("User Login") }
+        Spacer(Modifier.height(10.dp))
+        Button(onClick = onAdmin, modifier = Modifier.fillMaxWidth()) { Text("Admin Login") }
+    }
+}
+
+@Composable
+fun HomeScreen(vehicles: List<Vehicle>, onSelect: (Vehicle) -> Unit, onHistory: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Available Vehicles", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(10.dp))
+        LazyColumn {
+            items(vehicles) { vehicle ->
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text(vehicle.name, style = MaterialTheme.typography.titleLarge)
+                            Text("₹${vehicle.price} / hour")
+                        }
+                        Button(onClick = { onSelect(vehicle) }) { Text("Rent") }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onHistory, modifier = Modifier.fillMaxWidth()) { Text("My Bookings") }
+    }
+}
+
+@Composable
+fun AdminPanel(vehicles: List<Vehicle>, bookings: List<Booking>, onAdd: (Vehicle) -> Unit, onBack: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("") }
+    val revenue = bookings.sumOf { it.total }
+
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+        Text("Admin Panel", style = MaterialTheme.typography.headlineLarge)
+        Text("Total Revenue: ₹$revenue", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(20.dp))
+        OutlinedTextField(name, { name = it }, label = { Text("Vehicle Name") }, Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(price, { price = it }, label = { Text("Price per hour") }, Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = { price.toIntOrNull()?.let { p -> if(name.isNotBlank()) { onAdd(Vehicle(name, p)); name=""; price="" } } }, Modifier.fillMaxWidth()) {
+            Text("Add Vehicle")
+        }
+        Spacer(Modifier.height(10.dp))
+        Button(onClick = onBack, Modifier.fillMaxWidth()) { Text("Logout") }
+    }
+}
+
+@Composable
+fun BookingScreen(vehicle: Vehicle, onNext: (Int) -> Unit) {
+    var hoursText by remember { mutableStateOf("") }
+    val h = hoursText.toIntOrNull() ?: 0
+
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+        Text("Booking ${vehicle.name}", style = MaterialTheme.typography.headlineMedium)
+        Text("₹${vehicle.price} / hour")
+        Spacer(Modifier.height(20.dp))
+        OutlinedTextField(hoursText, { hoursText = it }, label = { Text("Enter hours") }, Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = { onNext(h) }, enabled = h>0, Modifier.fillMaxWidth()) { Text("Next") }
+    }
+}
+
+@Composable
+fun ReviewScreen(vehicle: Vehicle, hours: Int, onPay: () -> Unit) {
+    val total = vehicle.price * hours
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+        Text("Review Booking", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(20.dp))
+        Text("Vehicle: ${vehicle.name}")
+        Text("Hours: $hours")
+        Text("Total: ₹$total")
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onPay, Modifier.fillMaxWidth()) { Text("Pay") }
+    }
+}
+
+@Composable
+fun PaymentScreen(onSuccess: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
+        Text("Payment Successful", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onSuccess, Modifier.fillMaxWidth()) { Text("Confirm") }
+    }
+}
+
+@Composable
+fun ConfirmationScreen(onHome: () -> Unit) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("🎉 Booking Confirmed!", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onHome) { Text("Back to Home") }
+    }
+}
+
+@Composable
+fun BookingHistoryScreen(bookings: List<Booking>, onBack: () -> Unit, onCancel: (Booking) -> Unit) {
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Text("My Bookings", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(20.dp))
+        if(bookings.isEmpty()) Text("No bookings yet") else LazyColumn {
+            items(bookings) { b ->
+                Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Vehicle: ${b.vehicle}")
+                        Text("Hours: ${b.hours}")
+                        Text("Total: ₹${b.total}")
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = { onCancel(b) }) { Text("Cancel Booking") }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onBack, Modifier.fillMaxWidth()) { Text("Back") }
+    }
+}
